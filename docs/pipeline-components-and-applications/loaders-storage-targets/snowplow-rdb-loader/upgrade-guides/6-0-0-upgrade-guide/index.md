@@ -13,7 +13,7 @@ import License from "@site/docs/pipeline-components-and-applications/loaders-sto
 
 ### What is schema evolution?
 
-One of Snowplow’s key features is the ability to [define custom schemas and validate events against them](/docs/understanding-your-pipeline/schemas/). Over time, users often evolve the schemas, e.g. by adding new fields or changing existing fields. To accommodate these changes, RDB loader automatically adjusts the database tables in the warehouse accordingly.
+One of Snowplow’s key features is the ability to [define custom schemas and validate events against them](/docs/understanding-your-pipeline/schemas/index.md). Over time, users often evolve the schemas, e.g. by adding new fields or changing existing fields. To accommodate these changes, RDB loader automatically adjusts the database tables in the warehouse accordingly.
 
 There are two main types of schema changes:
 
@@ -95,19 +95,15 @@ Because `1-0-1` events cannot be loaded into the same table with `1-0-0`, the da
 
 If you create a new schema `1-0-2` that reverts the offending changes and is again compatible with `1-0-0`, the data for events with that schema will be written to the original table as expected.
 
-### Identification of the schemas that need patching
+### Identifying schemas that need patching
 
-After the rdb-loader's upgrade, users might find out that some old schema lineages land in the recovery table.
+After upgrading RDB Loader, you might find out that events or entities with some of the old schemas land in recovery tables.
 
-To avoid this, older iglu schemas must be patched to align with the latest.
+To avoid this, the offending older Iglu schemas must be patched to align with the latest.
 
-To help with the identification of the schemas that need patching, we have rewritten the rdbms table-check command.
-`igluctl` will now cross-check the types between the iglu server and RedShift or Postgres. Depending on what types
-offended the schema errors might vary.
+You can use the latest version of `igluctl` to do this:
 
-Procedure of identifying offending warehouse patches is as follows:
-
-1) Run `igluctl static generate` command. If recovery table to be created it will show up as a warning message. Example:
+1) Run the `igluctl static generate` command. If a recovery table is to be created, it will show up as a warning message. Example:
 ```bash
 mkdir <schemas_folder> <sql_folder>
 igluctl static pull <schemas_folder> <iglu_url> <iglu_key>
@@ -117,16 +113,16 @@ igluctl static generate <schemas_folder> <sql_folder>
 # ...
 ```
 
-2) Run `table-check` to crosscheck if warehouse was patched. This is done in case if  schema lineage had a broken schema
-   that were supreseed and no longer used, for example:
+2) Run the `igluctl table-check` command to check if the warehouse was patched. This is done in case there are incorrectly evolved schema versions that were never used, for example:
 ```
-100 - {"type" : "integer"}
-101 - {"type" : "number"}  // deprecated
-102 - {"type" : "integer"} // new corrected version
+* version `1-0-0`: `{"type" : "integer"}`
+* version `1-0-1`: `{"type" : "number"}` (deprecated, never used)
+* version `1-0-2`: `{"type" : "integer"}` (new, corrected version)
 ```
-Situation above is not an issue, but would produce a warning in step 1).
+The situation above is not an issue, but would produce a warning in step 1).
 ```bash
-igluctl --server <iglu_url> \
+igluctl table-check \
+        --server <iglu_url> \
         --apikey <iglu_key> \
         --host <redshift_host> \
         --port <redshift_port> \
@@ -141,13 +137,21 @@ igluctl --server <iglu_url> \
 # ...   
 ```
 
-After offending schemas were identified earlier version of them should be patched to reflect the database changes.
-Process above created a divergence in schema lineage. In such situations original schema without this patch schema `1-0-1` would land in a recovery table after loader upgrade.
+After identifying all the offending schemas, you should patch them to reflect the changes in the warehouse.
+The example above shows how the table structure does not match the schema. In such situations, if you don’t patch schema `1-0-0` appropriately,  schema `1-0-1` would land in a recovery table after the loader upgrade.
 
-Schema casting rules could be found [here](/docs/storing-querying/schemas-in-warehouse/?warehouse=redshift#types).
+Schema casting rules could be found [here](/docs/storing-querying/schemas-in-warehouse/index.md?warehouse=redshift#types).
 
 #### `$.featureFlags.disableRecovery` configuration
 
-This is useful if you have older schemas with breaking changes and don’t want the loader to apply the new logic to them.
-
 If you have older schemas with breaking changes and don’t want the loader to apply the new logic to them, you can use `$.featureFlags.disableRecovery` configuration. For the provided schema criterions only, RDB Loader will neither migrate the corresponding shredded table nor create recovery tables for breaking schema versions. Loader will attempt to load to the corresponding shredded table without migrating.
+
+You can set it like following:
+```json
+{
+  ...
+  "featureFlags": {
+    "disableRecovery": [ "iglu:com.example/myschema1/jsonschema/1-*-*", "iglu:com.example/myschema2/jsonschema/1-*-*"]
+  }
+}
+```
