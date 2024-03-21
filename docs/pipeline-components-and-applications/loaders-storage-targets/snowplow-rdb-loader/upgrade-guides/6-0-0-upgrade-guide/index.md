@@ -101,7 +101,17 @@ After upgrading RDB Loader, you might find out that events or entities with some
 
 To avoid this, the offending older Iglu schemas must be patched to align with the latest.
 
-You can use the latest version of `igluctl` to do this:
+You can use the latest version of `igluctl` to do this.
+
+To illustrate, let's say we have `1-0-0` and `1-0-1` that differs on one field only:
+```
+* version `1-0-0`: `{ "type": "integer", "maximum": 100 }` - translates to `SMALLINT`. All is going good.
+* version `1-0-1`: `{ "type": "integer", "maximum": 1000000 }` - breaking change as it translates to `INT` and loader can't
+  migrate.
+```
+Since `1-0-1` had breaking change, migration had been performed manually in warehouse previously because, loader couldn't migrate it due to breaking change. After manual migration, events with `1-0-1` schema would be loaded with pre-6.0.0 RDB Loader versions. However, after upgrading RDB Loader to 6.0.0, events with `1-0-1` schema will start to land in the recovery table.
+
+Let's see how we can use `igluctl` to solve this problem.
 
 1) Run the `igluctl static generate` command. If a recovery table is to be created, it will show up as a warning message. Example:
 ```bash
@@ -109,17 +119,12 @@ mkdir <schemas_folder> <sql_folder>
 igluctl static pull <schemas_folder> <iglu_url> <iglu_key>
 igluctl static generate <schemas_folder> <sql_folder> 
 # ...
-# iglu:com.snowplowanalytics.iglu/resolver-config/jsonschema/1-0-3 has a breaking change Incompatible encoding in column cache_size old type RedshiftBigInt/ZstdEncoding new type RedshiftDouble/RawEncoding
+# iglu:com.test/test/jsonschema/1-0-1 has a breaking change Incompatible encoding in column example_field old type RedshiftSmallIntZstdEncoding new type RedshiftInt/RawEncoding
 # ...
 ```
 
-2) Run the `igluctl table-check` command to check if the warehouse was patched. This is done in case there are incorrectly evolved schema versions that were never used, for example:
-```
-* version `1-0-0`: `{"type" : "integer"}`
-* version `1-0-1`: `{"type" : "number"}` (deprecated, never used)
-* version `1-0-2`: `{"type" : "integer"}` (new, corrected version)
-```
-The situation above is not an issue, but would produce a warning in step 1).
+2) Run the `igluctl table-check` command to check if table structure is inline with the latest schema version that doesn't contain any breaking change. With the example schemas above, this would be `1-0-0` because `1-0-1` contains breaking change.
+Example:
 ```bash
 igluctl table-check \
         --server <iglu_url> \
@@ -131,14 +136,15 @@ igluctl table-check \
         --dbname  <database> \
         --dbschema <schema>
 # ...
-# * Comment problem - SchemaKey found in table comment [iglu:com.test/test/jsonschema/1-0-0] does not match expected [iglu:com.test/test/jsonschema/1-0-1]
-# * Column doesn't match, expected: 'wrong_type BIGINT', actual: 'wrong_type VARCHAR(4096)'
-# * Column existing in the storage but is not defined in the schema: 'only_in_storage VARCHAR(4096)'
+# * Column doesn't match, expected: 'example_field SMALLINT', actual: 'example_field INT'
 # ...   
 ```
 
+We got `Column doesn't match` output with the above example because, the table column had been migrated manually from `SMALLINT` to `INT`. Since the latest schema version that doesn't contain any breaking change is `1-0-0`, `table-check` command expects to see `SMALLINT` in the table therefore it gives `Column doesn't match` output.
+
+In order to solve this problem, we should patch `1-0-0` with `{ "type": "integer", "maximum": 1000000 }`. In this case, there won't be any breaking change and events can be loaded to intended table as expected.
+
 After identifying all the offending schemas, you should patch them to reflect the changes in the warehouse.
-The example above shows how the table structure does not match the schema. In such situations, if you don’t patch schema `1-0-0` appropriately,  schema `1-0-1` would land in a recovery table after the loader upgrade.
 
 Schema casting rules could be found [here](/docs/storing-querying/schemas-in-warehouse/index.md?warehouse=redshift#types).
 
