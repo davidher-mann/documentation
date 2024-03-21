@@ -103,13 +103,11 @@ To avoid this, the offending older Iglu schemas must be patched to align with th
 
 You can use the latest version of `igluctl` to do this.
 
-To illustrate, let's say we have `1-0-0` and `1-0-1` that differs on one field only:
-```
-* version `1-0-0`: `{ "type": "integer", "maximum": 100 }` - translates to `SMALLINT`. All is going good.
-* version `1-0-1`: `{ "type": "integer", "maximum": 1000000 }` - breaking change as it translates to `INT` and loader can't
-  migrate.
-```
-Since `1-0-1` had breaking change, migration had been performed manually in warehouse previously because, loader couldn't migrate it due to breaking change. After manual migration, events with `1-0-1` schema would be loaded with pre-6.0.0 RDB Loader versions. However, after upgrading RDB Loader to 6.0.0, events with `1-0-1` schema will start to land in the recovery table.
+To illustrate, let's say we have schema versions `1-0-0` and `1-0-1` that differ in one field only:
+* version `1-0-0`: `{ "type": "integer", "maximum": 100 }` - translates to `SMALLINT`. All is good.
+* version `1-0-1`: `{ "type": "integer", "maximum": 1000000 }` - breaking change as it translates to `INT` and the loader can't migrate the column.
+
+Since version `1-0-1` had a breaking change, loading must have broken with an older version of RDB Loader. To fix that, the user must have updated the warehouse manually (changing the column type to `INT`). After this manual intervention, events with the `1-0-1` schema would have been loaded successfully with older versions of RDB Loader. However, after an upgrade to RDB Loader 6.0.0, events with the `1-0-1` schema will start to land in the recovery table.
 
 Let's see how we can use `igluctl` to solve this problem.
 
@@ -123,7 +121,7 @@ igluctl static generate <schemas_folder> <sql_folder>
 # ...
 ```
 
-2) Run the `igluctl table-check` command to check if table structure is inline with the latest schema version that doesn't contain any breaking change. With the example schemas above, this would be `1-0-0` because `1-0-1` contains breaking change.
+2) Run the `igluctl table-check` command to check if table structure is in line with the latest schema version that doesn't contain any breaking changes. With the example schemas above, this would be `1-0-0` because `1-0-1` contains a breaking change.
 Example:
 ```bash
 igluctl table-check \
@@ -140,9 +138,9 @@ igluctl table-check \
 # ...   
 ```
 
-We got `Column doesn't match` output with the above example because, the table column had been migrated manually from `SMALLINT` to `INT`. Since the latest schema version that doesn't contain any breaking change is `1-0-0`, `table-check` command expects to see `SMALLINT` in the table therefore it gives `Column doesn't match` output.
+We got the `Column doesn't match` output with the above example because the table column had been migrated manually from `SMALLINT` to `INT`. Since the latest schema version that doesn't contain any breaking change is `1-0-0`, `table-check` command expects to see `SMALLINT` in the table therefore it gives the `Column doesn't match` output.
 
-In order to solve this problem, we should patch `1-0-0` with `{ "type": "integer", "maximum": 1000000 }`. In this case, there won't be any breaking change and events can be loaded to intended table as expected.
+In order to solve this problem, we should patch `1-0-0` with `{ "type": "integer", "maximum": 1000000 }`. In this case, there won't be any breaking change between versions `1-0-0` and `1-0-1`. RDB Loader 6.0.0+ will then successfully load events into the intended table as expected.
 
 After identifying all the offending schemas, you should patch them to reflect the changes in the warehouse.
 
