@@ -117,7 +117,7 @@ mkdir <schemas_folder> <sql_folder>
 igluctl static pull <schemas_folder> <iglu_url> <iglu_key>
 igluctl static generate <schemas_folder> <sql_folder> 
 # ...
-# iglu:com.test/test/jsonschema/1-0-1 has a breaking change Incompatible encoding in column example_field old type RedshiftSmallIntZstdEncoding new type RedshiftInt/RawEncoding
+# iglu:com.test/test/jsonschema/1-0-1 has a breaking change Incompatible types in column example_field old RedshiftSmallInt new RedshiftInteger
 # ...
 ```
 
